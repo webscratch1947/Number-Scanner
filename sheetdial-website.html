@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#14213d">
+  <title>SheetDial Camera Scanner</title>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <style>
+    :root{--navy:#14213d;--green:#138a63;--green2:#0d714f;--bg:#f3f6fa;--ink:#172033;--muted:#667085;--line:#d8dee8;--warn:#9a6700}
+    *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:Arial,system-ui,sans-serif}
+    .app{max-width:720px;min-height:100vh;margin:auto;background:#fff}header{display:flex;align-items:center;justify-content:space-between;padding:18px;color:#fff;background:var(--navy)}
+    h1,h2,p{margin:0}h1{font-size:19px}.sub{margin-top:3px;color:#c6d0e0;font-size:12px}.count{color:#d7deea;font-size:12px}
+    main{padding:15px 15px 104px}.viewer{position:relative;display:grid;min-height:285px;overflow:hidden;place-items:center;border:1px solid #cdd5e1;border-radius:8px;background:#111827}
+    video,img{display:block;width:100%;max-height:430px;object-fit:contain}.empty{padding:28px;color:#d1d8e5;text-align:center;line-height:1.5}.empty b{display:block;margin-bottom:6px;color:#fff;font-size:18px}
+    .frame{position:absolute;inset:9%;pointer-events:none;border:2px solid rgba(119,230,189,.85);border-radius:5px}.frame:after{position:absolute;top:50%;right:5%;left:5%;height:2px;background:#79e6bd;box-shadow:0 0 12px #79e6bd;content:"";animation:scan 2s ease-in-out infinite}
+    @keyframes scan{0%,100%{transform:translateY(-88px)}50%{transform:translateY(88px)}}.hidden{display:none!important}
+    .actions{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:11px}.btn{display:flex;min-height:47px;align-items:center;justify-content:center;gap:7px;padding:10px 12px;border:1px solid transparent;border-radius:6px;font-weight:700;cursor:pointer}
+    .primary{color:#fff;background:var(--green)}.primary:hover{background:var(--green2)}.secondary{color:#344054;border-color:var(--line);background:#fff}.btn:disabled{cursor:not-allowed;opacity:.5}
+    .status{display:none;margin-top:10px;padding:10px 11px;border:1px solid var(--line);border-radius:6px;background:#f8fafc;color:#475467;font-size:13px;line-height:1.4}.status.show{display:block}.status.error{color:#b42318;border-color:#fecdca;background:#fffbfa}
+    .note{margin-top:12px;padding:9px 10px;color:#6d5100;border-left:3px solid #f0b429;background:#fff8db;font-size:12px;line-height:1.45}
+    .head{display:flex;align-items:end;justify-content:space-between;margin:23px 0 9px}h2{font-size:15px}.hint{margin-top:3px;color:var(--muted);font-size:12px}.clear{color:#b42318;border:0;background:transparent;font-size:13px;font-weight:700;cursor:pointer}
+    .list{display:grid;gap:7px}.empty-list{padding:22px;color:var(--muted);border:1px dashed var(--line);border-radius:7px;text-align:center;font-size:13px}
+    .row{display:grid;grid-template-columns:28px 1fr 34px;align-items:center;gap:5px;padding:6px;border:1px solid var(--line);border-radius:7px}.row.current{border-color:#54bd98;background:#eefaf5}.row.done{opacity:.6;background:#f8fafc}
+    .seq{color:#7a8698;font-size:12px;font-weight:700;text-align:center}.number{min-width:0;padding:8px;border:1px solid transparent;border-radius:4px;background:transparent;font-size:16px;font-weight:700}.number:focus{outline:0;border-color:#54bd98;background:#fff}
+    .remove{width:32px;height:32px;color:#b42318;border:0;border-radius:4px;background:#fff1f0;font-weight:700;cursor:pointer}.add{display:grid;grid-template-columns:1fr 44px;gap:7px;margin-top:8px}.add input{min-width:0;padding:0 10px;border:1px solid var(--line);border-radius:6px}
+    .dock{position:fixed;right:0;bottom:0;left:0;padding:10px 15px calc(10px + env(safe-area-inset-bottom));border-top:1px solid var(--line);background:rgba(255,255,255,.97);box-shadow:0 -5px 17px #17203317}.dock-in{display:flex;max-width:690px;margin:auto;align-items:center;gap:8px}.next{flex:1;min-width:0}.label{color:var(--muted);font-size:11px;font-weight:700;text-transform:uppercase}.next-num{overflow:hidden;margin-top:2px;font-size:16px;font-weight:800;text-overflow:ellipsis;white-space:nowrap}.call{min-width:145px}
+    canvas,input[type=file]{display:none}@media(min-width:721px){body{padding:24px}.app{min-height:calc(100vh - 48px);overflow:hidden;border-radius:9px;box-shadow:0 12px 32px #17203318}}
+  </style>
+</head>
+<body>
+<div class="app">
+  <header><div><h1>SheetDial</h1><p class="sub">Camera scanner and calling queue</p></div><span class="count" id="count">0 numbers</span></header>
+  <main>
+    <section class="viewer">
+      <div class="empty" id="empty"><b>Scan a sheet with your camera</b>Point your phone at the printed numbers and capture the page.</div>
+      <video id="video" playsinline autoplay muted class="hidden"></video>
+      <img id="photo" alt="Captured sheet" class="hidden">
+      <div id="frame" class="frame hidden"></div>
+    </section>
+    <div class="actions">
+      <button class="btn primary" id="cameraBtn">Open camera</button>
+      <button class="btn secondary hidden" id="captureBtn">Capture sheet</button>
+      <label class="btn secondary" id="fallbackBtn" for="fileInput">Gallery fallback</label>
+      <input id="fileInput" type="file" accept="image/*" capture="environment">
+    </div>
+    <canvas id="canvas"></canvas>
+    <div class="status" id="status"></div>
+    <div class="note">Camera access works on HTTPS websites and on localhost. Allow camera permission when your browser asks.</div>
+    <div class="head"><div><h2>Detected calling queue</h2><p class="hint">Review and correct the numbers before calling.</p></div><button class="clear" id="clearBtn">Clear</button></div>
+    <div class="list" id="list"></div>
+    <form class="add" id="addForm"><input id="addInput" type="tel" inputmode="tel" placeholder="Add a number manually"><button class="btn secondary" aria-label="Add number">+</button></form>
+  </main>
+  <div class="dock"><div class="dock-in"><div class="next"><div class="label" id="label">Ready</div><div class="next-num" id="nextNum">Scan a sheet first</div></div><button class="btn primary call" id="callBtn" disabled>Start calling</button></div></div>
+</div>
+<script>
+const state={numbers:[],current:0,stream:null,dialerOpened:false,dialerOpenedAt:0,working:false};
+const $=id=>document.getElementById(id);
+const escapeAttr=s=>s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+const clean=s=>s.replace(/\s+/g," ").trim();
+function status(text,error=false){$("status").className="status"+(text?" show":"")+(error?" error":"");$("status").textContent=text}
+function extract(text){
+  const normalized=text.replace(/[Oo]/g,"0").replace(/[–—]/g,"-").replace(/[|]/g,"1");
+  return (normalized.match(/(?:\+?\d[\d \t().-]{5,}\d)/g)||[]).map(clean).filter(n=>{const d=n.replace(/\D/g,"").length;return d>=7&&d<=15});
+}
+function render(){
+  $("count").textContent=`${state.numbers.length} number${state.numbers.length===1?"":"s"}`;
+  $("list").innerHTML=state.numbers.length?state.numbers.map((n,i)=>`<div class="row ${i<state.current?"done":""} ${i===state.current?"current":""}"><span class="seq">${String(i+1).padStart(2,"0")}</span><input class="number" data-i="${i}" type="tel" inputmode="tel" value="${escapeAttr(n)}"><button class="remove" data-i="${i}" aria-label="Remove number">x</button></div>`).join(""):`<div class="empty-list">Numbers found by the camera will appear here in reading order.</div>`;
+  const next=state.numbers[state.current],finished=state.numbers.length&&state.current>=state.numbers.length;
+  $("label").textContent=finished?"Queue complete":next?`Next ${state.current+1} of ${state.numbers.length}`:"Ready";
+  $("nextNum").textContent=finished?"Scan another sheet":next||"Scan a sheet first";
+  $("callBtn").disabled=!next||state.working;$("callBtn").textContent=state.current?"Call next":"Start calling";
+}
+async function openCamera(){
+  if(!navigator.mediaDevices?.getUserMedia){status("This browser cannot open a live camera. Use the gallery fallback or open this website in Chrome or Safari.",true);return}
+  try{
+    stopCamera();state.stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"}},audio:false});
+    $("video").srcObject=state.stream;$("empty").classList.add("hidden");$("photo").classList.add("hidden");$("video").classList.remove("hidden");$("frame").classList.remove("hidden");
+    $("cameraBtn").textContent="Restart camera";$("captureBtn").classList.remove("hidden");status("Camera ready. Keep the sheet flat and tap Capture sheet.");
+  }catch(e){status("Camera permission was blocked or unavailable. Allow camera access in the browser, or use the gallery fallback.",true)}
+}
+function stopCamera(){if(state.stream){state.stream.getTracks().forEach(t=>t.stop());state.stream=null}}
+async function recognize(source){
+  state.working=true;render();status("Reading the captured sheet... 0%");
+  try{
+    const out=await Tesseract.recognize(source,"eng",{logger:m=>{if(m.status==="recognizing text")status(`Reading the captured sheet... ${Math.round((m.progress||0)*100)}%`)}});
+    const found=extract(out.data.text);
+    if(!found.length)status("No phone numbers were detected. Retake a clearer photo or add numbers manually.",true);
+    else{state.numbers.push(...found);status(`Found ${found.length} number${found.length===1?"":"s"}. Review the queue before calling.`)}
+  }catch(e){status("OCR could not load. Check the website internet connection and try again.",true)}
+  state.working=false;render();
+}
+function capture(){
+  const v=$("video"),c=$("canvas");if(!state.stream||!v.videoWidth){status("Wait for the camera preview, then capture again.",true);return}
+  c.width=v.videoWidth;c.height=v.videoHeight;c.getContext("2d").drawImage(v,0,0);const data=c.toDataURL("image/jpeg",.92);
+  $("photo").src=data;$("photo").classList.remove("hidden");$("video").classList.add("hidden");$("frame").classList.add("hidden");stopCamera();recognize(data);
+}
+$("cameraBtn").onclick=openCamera;$("captureBtn").onclick=capture;
+$("fileInput").onchange=e=>{const f=e.target.files[0];if(!f)return;stopCamera();$("empty").classList.add("hidden");$("video").classList.add("hidden");$("frame").classList.add("hidden");$("photo").src=URL.createObjectURL(f);$("photo").classList.remove("hidden");recognize(f);e.target.value=""};
+$("list").oninput=e=>{if(e.target.matches(".number")){state.numbers[+e.target.dataset.i]=e.target.value;render()}};
+$("list").onclick=e=>{if(e.target.matches(".remove")){const i=+e.target.dataset.i;state.numbers.splice(i,1);if(i<state.current)state.current--;render()}};
+$("addForm").onsubmit=e=>{e.preventDefault();const n=clean($("addInput").value);if(n){state.numbers.push(n);$("addInput").value="";render()}};
+$("clearBtn").onclick=()=>{state.numbers=[];state.current=0;status("");render()};
+$("callBtn").onclick=()=>{const n=(state.numbers[state.current]||"").replace(/[^\d+#*]/g,"");if(!n)return;state.dialerOpened=true;state.dialerOpenedAt=Date.now();location.href=`tel:${n}`};
+function returned(){if(state.dialerOpened&&Date.now()-state.dialerOpenedAt>700){state.dialerOpened=false;if(state.current<state.numbers.length)state.current++;render()}}
+document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")returned()});window.addEventListener("focus",returned);window.addEventListener("pageshow",returned);window.addEventListener("beforeunload",stopCamera);
+render();
+</script>
+</body>
+</html>
